@@ -66,24 +66,30 @@ public class InputTouch {
                         Ln.e("unable to resolve command");
                     }
                 }
+                try {
+                    int x = Integer.parseInt(params.get(1));
+                    int y = Integer.parseInt(params.get(2));
+                    Point point = new Point(x,y);
+                    Position position = new Position(point,surfaceCapture.getSize());
 
-                int x = Integer.parseInt(params.get(1));
-                int y = Integer.parseInt(params.get(2));
-                Point point = new Point(x,y);
-                Position position = new Position(point,surfaceCapture.getSize());
+                    long pointerId = 0;
+                    if (params.size()==4){
+                        pointerId = Long.parseLong(params.get(3));
+                    }
+                    float pressure = Binary.u16FixedPointToFloat((short) 0xffff);
+                    int actionButton = 1;
+                    int buttons = 1;
 
-                long pointerId = 0;
-                if (params.size()==4){
-                    pointerId = Long.parseLong(params.get(3));
-                }
-                float pressure = Binary.u16FixedPointToFloat((short) 0xffff);
-                int actionButton = 1;
-                int buttons = 1;
+                    ControlMessage msg = ControlMessage.createInjectTouchEvent(action, pointerId, position, pressure, actionButton, buttons);
 
-                ControlMessage msg = ControlMessage.createInjectTouchEvent(action, pointerId, position, pressure, actionButton, buttons);
-
-                if (device.supportsInputEvents()) {
-                    injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
+                    if (device.supportsInputEvents()) {
+                        boolean result = injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
+                        if (!result){
+                            Ln.e("touch event fail");
+                        }
+                    }
+                }catch (RuntimeException e){
+                    Ln.e(e.getMessage());
                 }
             }
         }

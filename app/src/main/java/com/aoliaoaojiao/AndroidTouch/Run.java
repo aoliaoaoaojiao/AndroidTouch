@@ -20,7 +20,7 @@ public final class Run {
             InputTouch inputTouch = new InputTouch(device,surfaceCapture,scanner);
             inputTouch.handleEvent();
         } catch (RuntimeException e){
-            e.printStackTrace();
+            Ln.e(e.getMessage());
         }
     }
 
