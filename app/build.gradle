@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.aoliaoaojiao.AndroidTouch'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.aoliaoaojiao.AndroidTouch"
+        minSdkVersion 21
+        targetSdkVersion 33
+        versionCode 200
+        versionName "v2.2"
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    buildFeatures {
+        compose true
+        // Disable unused AGP features
+        buildConfig true
+        aidl true
+        renderScript false
+        resValues false
+        shaders false
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.8.8'
+    testImplementation 'junit:junit:4.13.2'
+}
+
