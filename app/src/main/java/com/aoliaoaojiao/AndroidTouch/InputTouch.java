@@ -10,6 +10,7 @@ import com.aoliaoaojiao.AndroidTouch.wrappers.InputManager;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Scanner;
 
@@ -26,6 +27,7 @@ public class InputTouch {
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[PointersState.MAX_POINTERS];
     private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[PointersState.MAX_POINTERS];
 
+    HashMap<Long, Point> pointerIdLastPoint = new HashMap<>();
 
     public InputTouch() {
     }
@@ -42,8 +44,6 @@ public class InputTouch {
         }
     }
 
-    int lastX = 0;
-    int lastY = 0;
 
     public void handleEvent() {
         while (!Thread.currentThread().isInterrupted()) {
@@ -54,15 +54,16 @@ public class InputTouch {
                     params.add(param);
                 }
             }
-
+            int lastX = 0;
+            int lastY = 0;
             long pointerId = 0;
 
             if (params.size() >= 2) {
                 int action = 0;
 
-                if (!"airtest".equals(params.get(0)) && !"".equals(params.get(0))) {
+                if (!"airtest".equals(params.get(0)) && !"touch".equals(params.get(0))) {
                     Ln.e("the command is error:" + cmd);
-                    return;
+                    continue;
                 }
 
                 switch (params.get(1)) {
@@ -70,12 +71,13 @@ public class InputTouch {
                     case "move": {
                         if (params.size() < 4) {
                             Ln.e("the command is error:" + cmd);
-                            return;
+                            continue;
                         }
 
                         action = "down".equals(params.get(1)) ? 0 : 2;
                         if (params.size() == 5) {
                             pointerId = Long.parseLong(params.get(4));
+//                            Ln.i("pointerId:"+pointerId);
                         }
 
                         if ("airtest".equals(params.get(0))) {
@@ -95,14 +97,23 @@ public class InputTouch {
                         if (params.size() == 3) {
                             pointerId = Long.parseLong(params.get(2));
                         }
+                        if (pointerIdLastPoint.containsKey(pointerId) && pointerIdLastPoint.get(pointerId) != null) {
+                            Point point = pointerIdLastPoint.get(pointerId);
+                            lastX = point.getX();
+                            lastY = point.getY();
+                        }
                         break;
                     }
                     default: {
                         Ln.e("unable to resolve command");
+                        continue;
                     }
                 }
 
                 Point point = new Point(lastX, lastY);
+
+                pointerIdLastPoint.put(pointerId, point);
+
                 Position position = new Position(point, surfaceCapture.getSize());
 
                 float pressure = Binary.u16FixedPointToFloat((short) 0xffff);
