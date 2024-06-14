@@ -4,6 +4,7 @@ import android.os.Build;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
+import android.view.SurfaceControl;
 
 import com.aoliaoaojiao.AndroidTouch.wrappers.InputManager;
 
@@ -41,56 +42,84 @@ public class InputTouch {
         }
     }
 
-    public void handleEvent(){
-        while (!Thread.currentThread().isInterrupted()){
+    int lastX = 0;
+    int lastY = 0;
+
+    public void handleEvent() {
+        while (!Thread.currentThread().isInterrupted()) {
             String cmd = scanner.nextLine();
             List<String> params = new ArrayList<>();
-            for (String param:cmd.split(" ")){
-                if (!"".equals(param)){
+            for (String param : cmd.split(" ")) {
+                if (!"".equals(param)) {
                     params.add(param);
                 }
             }
-            if (params.size()>=3){
+
+            long pointerId = 0;
+
+            if (params.size() >= 2) {
                 int action = 0;
-                switch (params.get(0)){
-                    case "down":{
+
+                if (!"airtest".equals(params.get(0)) && !"".equals(params.get(0))) {
+                    Ln.e("the command is error:" + cmd);
+                    return;
+                }
+
+                switch (params.get(1)) {
+                    case "down":
+                    case "move": {
+                        if (params.size() < 4) {
+                            Ln.e("the command is error:" + cmd);
+                            return;
+                        }
+
+                        action = "down".equals(params.get(1)) ? 0 : 2;
+                        if (params.size() == 5) {
+                            pointerId = Long.parseLong(params.get(4));
+                        }
+
+                        if ("airtest".equals(params.get(0))) {
+                            double pointX = Double.parseDouble(params.get(2));
+                            double pointY = Double.parseDouble(params.get(3));
+                            lastX = (int) (pointX * surfaceCapture.getSize().getWidth());
+                            lastY = (int) (pointY * surfaceCapture.getSize().getHeight());
+                        } else if ("touch".equals(params.get(0))) {
+                            lastX = Integer.parseInt(params.get(2));
+                            lastY = Integer.parseInt(params.get(3));
+                        }
+
                         break;
                     }
-                    case "move": {
-                        action = 2;
-                        break;
-                    } case "up":{
+                    case "up": {
                         action = 1;
+                        if (params.size() == 3) {
+                            pointerId = Long.parseLong(params.get(2));
+                        }
                         break;
-                    } default:{
+                    }
+                    default: {
                         Ln.e("unable to resolve command");
                     }
                 }
-                try {
-                    int x = Integer.parseInt(params.get(1));
-                    int y = Integer.parseInt(params.get(2));
-                    Point point = new Point(x,y);
-                    Position position = new Position(point,surfaceCapture.getSize());
 
-                    long pointerId = 0;
-                    if (params.size()==4){
-                        pointerId = Long.parseLong(params.get(3));
+                Point point = new Point(lastX, lastY);
+                Position position = new Position(point, surfaceCapture.getSize());
+
+                float pressure = Binary.u16FixedPointToFloat((short) 0xffff);
+                int actionButton = 1;
+                int buttons = 1;
+
+                ControlMessage msg = ControlMessage.createInjectTouchEvent(action, pointerId, position, pressure, actionButton, buttons);
+
+                if (device.supportsInputEvents()) {
+                    boolean result = injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
+                    if (!result) {
+                        Ln.e("touch event fail");
                     }
-                    float pressure = Binary.u16FixedPointToFloat((short) 0xffff);
-                    int actionButton = 1;
-                    int buttons = 1;
-
-                    ControlMessage msg = ControlMessage.createInjectTouchEvent(action, pointerId, position, pressure, actionButton, buttons);
-
-                    if (device.supportsInputEvents()) {
-                        boolean result = injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
-                        if (!result){
-                            Ln.e("touch event fail");
-                        }
-                    }
-                }catch (RuntimeException e){
-                    Ln.e(e.getMessage());
                 }
+
+            } else {
+                Ln.e("the command is error:" + cmd);
             }
         }
     }
