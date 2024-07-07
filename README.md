@@ -35,7 +35,7 @@ adb shell CLASSPATH=/data/local/tmp/AndroidTouch.jar app_process / com.aoliaoaoj
 **touch模式使用示例（注意，坐标原点始终为屏幕的左上角）**：
 
 ```
-touch down 500 600
+touch down 500 600 # 执行成功后命令行会回显succeed
 touch move 500 700
 touch move 600 700
 touch up

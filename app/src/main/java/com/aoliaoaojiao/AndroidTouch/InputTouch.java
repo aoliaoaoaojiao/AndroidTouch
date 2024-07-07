@@ -126,6 +126,8 @@ public class InputTouch {
                     boolean result = injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
                     if (!result) {
                         Ln.e("touch event fail");
+                    }else {
+                        Ln.i("succeed");
                     }
                 }
 
