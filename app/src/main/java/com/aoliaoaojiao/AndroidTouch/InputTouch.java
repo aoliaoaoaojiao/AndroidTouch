@@ -111,8 +111,12 @@ public class InputTouch {
                 }
 
                 Point point = new Point(lastX, lastY);
-
-                pointerIdLastPoint.put(pointerId, point);
+                if (!params.get(1).equals("up")){
+                    pointerIdLastPoint.put(pointerId, point);
+                }else {
+                    pointerIdLastPoint.remove(pointerId);
+                }
+//                Ln.i(params.get(1)+" x:"+lastX+" y:"+lastY+" id:"+pointerId);
 
                 Position position = new Position(point, surfaceCapture.getSize());
 
@@ -125,9 +129,9 @@ public class InputTouch {
                 if (device.supportsInputEvents()) {
                     boolean result = injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
                     if (!result) {
-                        Ln.e("touch event fail");
+                        Ln.e("touch event fail"+msg.getPointerId());
                     }else {
-                        Ln.i("succeed");
+                        Ln.i("succeed "+msg.getPointerId());
                     }
                 }
 
