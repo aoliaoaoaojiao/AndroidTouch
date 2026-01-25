@@ -1,15 +1,10 @@
 package com.aoliaoaojiao.AndroidTouch;
 
-import com.aoliaoaojiao.AndroidTouch.wrappers.ClipboardManager;
 import com.aoliaoaojiao.AndroidTouch.wrappers.InputManager;
 import com.aoliaoaojiao.AndroidTouch.wrappers.ServiceManager;
-import com.aoliaoaojiao.AndroidTouch.wrappers.SurfaceControl;
-import com.aoliaoaojiao.AndroidTouch.wrappers.WindowManager;
 
-import android.content.IOnPrimaryClipChangedListener;
 import android.graphics.Rect;
 import android.os.Build;
-import android.os.IBinder;
 import android.os.SystemClock;
 import android.view.IRotationWatcher;
 import android.view.IDisplayFoldListener;
@@ -18,12 +13,10 @@ import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
+/**
+ * 简化的设备类，专注于触控功能
+ */
 public final class Device {
-
-    public static final int POWER_MODE_OFF = SurfaceControl.POWER_MODE_OFF;
-    public static final int POWER_MODE_NORMAL = SurfaceControl.POWER_MODE_NORMAL;
 
     public static final int INJECT_MODE_ASYNC = InputManager.INJECT_INPUT_EVENT_MODE_ASYNC;
     public static final int INJECT_MODE_WAIT_FOR_RESULT = InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_RESULT;
@@ -40,10 +33,6 @@ public final class Device {
         void onFoldChanged(int displayId, boolean folded);
     }
 
-    public interface ClipboardListener {
-        void onClipboardTextChanged(String text);
-    }
-
     private final Size deviceSize;
     private final Rect crop;
     private int maxSize;
@@ -52,16 +41,14 @@ public final class Device {
     private ScreenInfo screenInfo;
     private RotationListener rotationListener;
     private FoldListener foldListener;
-    private ClipboardListener clipboardListener;
-    private final AtomicBoolean isSettingClipboard = new AtomicBoolean();
 
     /**
-     * Logical display identifier
+     * 逻辑显示标识符
      */
     private final int displayId;
 
     /**
-     * The surface flinger layer stack associated with this logical display
+     * 与此逻辑显示关联的surface flinger层堆栈
      */
     private final int layerStack;
 
@@ -71,7 +58,7 @@ public final class Device {
         displayId = options.getDisplayId();
         DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
         if (displayInfo == null) {
-            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+            Ln.e("Display " + displayId + " not found");
             throw new ConfigurationException("Unknown display id: " + displayId);
         }
 
@@ -91,7 +78,7 @@ public final class Device {
                 synchronized (Device.this) {
                     screenInfo = screenInfo.withDeviceRotation(rotation);
 
-                    // notify
+                    // 通知监听器
                     if (rotationListener != null) {
                         rotationListener.onRotationChanged(rotation);
                     }
@@ -104,20 +91,20 @@ public final class Device {
                 @Override
                 public void onDisplayFoldChanged(int displayId, boolean folded) {
                     if (Device.this.displayId != displayId) {
-                        // Ignore events related to other display ids
+                        // 忽略与其他显示相关的事件
                         return;
                     }
 
                     synchronized (Device.this) {
                         DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
                         if (displayInfo == null) {
-                            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+                            Ln.e("Display " + displayId + " not found");
                             return;
                         }
 
                         screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), displayInfo.getSize(), options.getCrop(),
                                 options.getMaxSize(), options.getLockVideoOrientation());
-                        // notify
+                        // 通知监听器
                         if (foldListener != null) {
                             foldListener.onFoldChanged(displayId, folded);
                         }
@@ -126,37 +113,11 @@ public final class Device {
             });
         }
 
-        if (options.getControl() && options.getClipboardAutosync()) {
-            // If control and autosync are enabled, synchronize Android clipboard to the computer automatically
-            ClipboardManager clipboardManager = ServiceManager.getClipboardManager();
-            if (clipboardManager != null) {
-                clipboardManager.addPrimaryClipChangedListener(new IOnPrimaryClipChangedListener.Stub() {
-                    @Override
-                    public void dispatchPrimaryClipChanged() {
-                        if (isSettingClipboard.get()) {
-                            // This is a notification for the change we are currently applying, ignore it
-                            return;
-                        }
-                        synchronized (Device.this) {
-                            if (clipboardListener != null) {
-                                String text = getClipboardText();
-                                if (text != null) {
-                                    clipboardListener.onClipboardTextChanged(text);
-                                }
-                            }
-                        }
-                    }
-                });
-            } else {
-                Ln.w("No clipboard manager, copy-paste between device and computer will not work");
-            }
-        }
-
         if ((displayInfoFlags & DisplayInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) == 0) {
             Ln.w("Display doesn't have FLAG_SUPPORTS_PROTECTED_BUFFERS flag, mirroring can be restricted");
         }
 
-        // main display or any display on Android >= Q
+        // 主显示或Android >= Q上的任何显示
         supportsInputEvents = displayId == 0 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
         if (!supportsInputEvents) {
             Ln.w("Input events are not supported for secondary displays before Android 10");
@@ -177,21 +138,21 @@ public final class Device {
     }
 
     public Point getPhysicalPoint(Position position) {
-        // it hides the field on purpose, to read it with a lock
+        // 故意隐藏字段，用锁读取
         @SuppressWarnings("checkstyle:HiddenField")
-        ScreenInfo screenInfo = getScreenInfo(); // read with synchronization
+        ScreenInfo screenInfo = getScreenInfo(); // 同步读取
 
-        // ignore the locked video orientation, the events will apply in coordinates considered in the physical device orientation
+        // 忽略锁定的视频方向，事件将应用于物理设备方向坐标
         Size unlockedVideoSize = screenInfo.getUnlockedVideoSize();
 
         int reverseVideoRotation = screenInfo.getReverseVideoRotation();
-        // reverse the video rotation to apply the events
+        // 反转视频旋转以应用事件
         Position devicePosition = position.rotate(reverseVideoRotation);
 
         Size clientVideoSize = devicePosition.getScreenSize();
         if (!unlockedVideoSize.equals(clientVideoSize)) {
-            // The client sends a click relative to a video with wrong dimensions,
-            // the device may have been rotated since the event was generated, so ignore the event
+            // 客户端发送了相对于错误尺寸视频的点击，
+            // 设备可能自事件生成以来已旋转，因此忽略该事件
             return null;
         }
         Rect contentRect = screenInfo.getContentRect();
@@ -249,10 +210,6 @@ public final class Device {
         return pressReleaseKeycode(keyCode, displayId, injectMode);
     }
 
-    public static boolean isScreenOn() {
-        return ServiceManager.getPowerManager().isScreenOn();
-    }
-
     public synchronized void setRotationListener(RotationListener rotationListener) {
         this.rotationListener = rotationListener;
     }
@@ -261,109 +218,112 @@ public final class Device {
         this.foldListener = foldlistener;
     }
 
-    public synchronized void setClipboardListener(ClipboardListener clipboardListener) {
-        this.clipboardListener = clipboardListener;
-    }
-
-    public static void expandNotificationPanel() {
-        ServiceManager.getStatusBarManager().expandNotificationsPanel();
-    }
-
-    public static void expandSettingsPanel() {
-        ServiceManager.getStatusBarManager().expandSettingsPanel();
-    }
-
-    public static void collapsePanels() {
-        ServiceManager.getStatusBarManager().collapsePanels();
-    }
-
-    public static String getClipboardText() {
-        ClipboardManager clipboardManager = ServiceManager.getClipboardManager();
-        if (clipboardManager == null) {
-            return null;
-        }
-        CharSequence s = clipboardManager.getText();
-        if (s == null) {
-            return null;
-        }
-        return s.toString();
-    }
-
-    public boolean setClipboardText(String text) {
-        ClipboardManager clipboardManager = ServiceManager.getClipboardManager();
-        if (clipboardManager == null) {
-            return false;
-        }
-
-        String currentClipboard = getClipboardText();
-        if (currentClipboard != null && currentClipboard.equals(text)) {
-            // The clipboard already contains the requested text.
-            // Since pasting text from the computer involves setting the device clipboard, it could be set twice on a copy-paste. This would cause
-            // the clipboard listeners to be notified twice, and that would flood the Android keyboard clipboard history. To workaround this
-            // problem, do not explicitly set the clipboard text if it already contains the expected content.
-            return false;
-        }
-
-        isSettingClipboard.set(true);
-        boolean ok = clipboardManager.setText(text);
-        isSettingClipboard.set(false);
-        return ok;
-    }
-
     /**
-     * @param mode one of the {@code POWER_MODE_*} constants
+     * 简化版的ScreenInfo内部类
      */
-    public static boolean setScreenPowerMode(int mode) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Change the power mode for all physical displays
-            long[] physicalDisplayIds = SurfaceControl.getPhysicalDisplayIds();
-            if (physicalDisplayIds == null) {
-                Ln.e("Could not get physical display ids");
-                return false;
+    public static final class ScreenInfo {
+        private final Rect contentRect;
+        private final Size unlockedVideoSize;
+        private final int deviceRotation;
+        private final int lockedVideoOrientation;
+
+        public ScreenInfo(Rect contentRect, Size unlockedVideoSize, int deviceRotation, int lockedVideoOrientation) {
+            this.contentRect = contentRect;
+            this.unlockedVideoSize = unlockedVideoSize;
+            this.deviceRotation = deviceRotation;
+            this.lockedVideoOrientation = lockedVideoOrientation;
+        }
+
+        public Rect getContentRect() {
+            return contentRect;
+        }
+
+        public Size getUnlockedVideoSize() {
+            return unlockedVideoSize;
+        }
+
+        public Size getVideoSize() {
+            if (getVideoRotation() % 2 == 0) {
+                return unlockedVideoSize;
+            }
+            return unlockedVideoSize.rotate();
+        }
+
+        public int getDeviceRotation() {
+            return deviceRotation;
+        }
+
+        public ScreenInfo withDeviceRotation(int newDeviceRotation) {
+            if (newDeviceRotation == deviceRotation) {
+                return this;
+            }
+            boolean orientationChanged = (deviceRotation + newDeviceRotation) % 2 != 0;
+            Rect newContentRect;
+            Size newUnlockedVideoSize;
+            if (orientationChanged) {
+                newContentRect = flipRect(contentRect);
+                newUnlockedVideoSize = unlockedVideoSize.rotate();
+            } else {
+                newContentRect = contentRect;
+                newUnlockedVideoSize = unlockedVideoSize;
+            }
+            return new ScreenInfo(newContentRect, newUnlockedVideoSize, newDeviceRotation, lockedVideoOrientation);
+        }
+
+        public static ScreenInfo computeScreenInfo(int rotation, Size deviceSize, Rect crop, int maxSize, int lockedVideoOrientation) {
+            if (lockedVideoOrientation == Device.LOCK_VIDEO_ORIENTATION_INITIAL) {
+                lockedVideoOrientation = rotation;
             }
 
-            boolean allOk = true;
-            for (long physicalDisplayId : physicalDisplayIds) {
-                IBinder binder = SurfaceControl.getPhysicalDisplayToken(physicalDisplayId);
-                allOk &= SurfaceControl.setDisplayPowerMode(binder, mode);
+            Rect contentRect = new Rect(0, 0, deviceSize.getWidth(), deviceSize.getHeight());
+            if (crop != null) {
+                if (rotation % 2 != 0) {
+                    crop = flipRect(crop);
+                }
+                if (!contentRect.intersect(crop)) {
+                    Ln.w("Crop rectangle does not intersect device screen");
+                    contentRect = new Rect();
+                }
             }
-            return allOk;
+
+            Size videoSize = computeVideoSize(contentRect.width(), contentRect.height(), maxSize);
+            return new ScreenInfo(contentRect, videoSize, rotation, lockedVideoOrientation);
         }
 
-        // Older Android versions, only 1 display
-        IBinder d = SurfaceControl.getBuiltInDisplay();
-        if (d == null) {
-            Ln.e("Could not get built-in display");
-            return false;
+        private static Size computeVideoSize(int w, int h, int maxSize) {
+            w &= ~7;
+            h &= ~7;
+            if (maxSize > 0) {
+                boolean portrait = h > w;
+                int major = portrait ? h : w;
+                int minor = portrait ? w : h;
+                if (major > maxSize) {
+                    int minorExact = minor * maxSize / major;
+                    minor = (minorExact + 4) & ~7;
+                    major = maxSize;
+                }
+                w = portrait ? minor : major;
+                h = portrait ? major : minor;
+            }
+            return new Size(w, h);
         }
-        return SurfaceControl.setDisplayPowerMode(d, mode);
-    }
 
-    public static boolean powerOffScreen(int displayId) {
-        if (!isScreenOn()) {
-            return true;
+        private static Rect flipRect(Rect crop) {
+            return new Rect(crop.top, crop.left, crop.bottom, crop.right);
         }
-        return pressReleaseKeycode(KeyEvent.KEYCODE_POWER, displayId, Device.INJECT_MODE_ASYNC);
-    }
 
-    /**
-     * Disable auto-rotation (if enabled), set the screen rotation and re-enable auto-rotation (if it was enabled).
-     */
-    public static void rotateDevice() {
-        WindowManager wm = ServiceManager.getWindowManager();
+        public int getVideoRotation() {
+            if (lockedVideoOrientation == -1) {
+                return 0;
+            }
+            return (deviceRotation + 4 - lockedVideoOrientation) % 4;
+        }
 
-        boolean accelerometerRotation = !wm.isRotationFrozen();
-
-        int currentRotation = wm.getRotation();
-        int newRotation = (currentRotation & 1) ^ 1; // 0->1, 1->0, 2->1, 3->0
-        String newRotationString = newRotation == 0 ? "portrait" : "landscape";
-
-        Ln.i("Device rotation requested: " + newRotationString);
-        wm.freezeRotation(newRotation);
-
-        // restore auto-rotate if necessary
-        if (accelerometerRotation) {
-            wm.thawRotation();
+        public int getReverseVideoRotation() {
+            if (lockedVideoOrientation == -1) {
+                return 0;
+            }
+            return (lockedVideoOrientation + 4 - deviceRotation) % 4;
         }
     }
 }

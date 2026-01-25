@@ -1,17 +1,14 @@
 package com.aoliaoaojiao.AndroidTouch.wrappers;
 
-import com.aoliaoaojiao.AndroidTouch.FakeContext;
-
 import android.annotation.SuppressLint;
-import android.content.Context;
-import android.hardware.camera2.CameraManager;
 import android.os.IBinder;
 import android.os.IInterface;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
+/**
+ * 简化的服务管理器，专注于触控功能必需的服务
+ */
 @SuppressLint("PrivateApi,DiscouragedPrivateApi")
 public final class ServiceManager {
 
@@ -27,14 +24,9 @@ public final class ServiceManager {
     private static WindowManager windowManager;
     private static DisplayManager displayManager;
     private static InputManager inputManager;
-    private static PowerManager powerManager;
-    private static StatusBarManager statusBarManager;
-    private static ClipboardManager clipboardManager;
-    private static ActivityManager activityManager;
-    private static CameraManager cameraManager;
 
     private ServiceManager() {
-        /* not instantiable */
+        /* 不可实例化 */
     }
 
     private static IInterface getService(String service, String type) {
@@ -61,7 +53,7 @@ public final class ServiceManager {
                 Method getInstanceMethod = clazz.getDeclaredMethod("getInstance");
                 Object dmg = getInstanceMethod.invoke(null);
                 displayManager = new DisplayManager(dmg);
-            } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+            } catch (Exception e) {
                 throw new AssertionError(e);
             }
         }
@@ -70,7 +62,6 @@ public final class ServiceManager {
 
     public static Class<?> getInputManagerClass() {
         try {
-            // Parts of the InputManager class have been moved to a new InputManagerGlobal class in Android 14 preview
             return Class.forName("android.hardware.input.InputManagerGlobal");
         } catch (ClassNotFoundException e) {
             return android.hardware.input.InputManager.class;
@@ -84,55 +75,10 @@ public final class ServiceManager {
                 Method getInstanceMethod = inputManagerClass.getDeclaredMethod("getInstance");
                 Object im = getInstanceMethod.invoke(null);
                 inputManager = new InputManager(im);
-            } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-                throw new AssertionError(e);
-            }
-        }
-        return inputManager;
-    }
-
-    public static PowerManager getPowerManager() {
-        if (powerManager == null) {
-            powerManager = new PowerManager(getService("power", "android.os.IPowerManager"));
-        }
-        return powerManager;
-    }
-
-    public static StatusBarManager getStatusBarManager() {
-        if (statusBarManager == null) {
-            statusBarManager = new StatusBarManager(getService("statusbar", "com.android.internal.statusbar.IStatusBarService"));
-        }
-        return statusBarManager;
-    }
-
-    public static ClipboardManager getClipboardManager() {
-        if (clipboardManager == null) {
-            IInterface clipboard = getService("clipboard", "android.content.IClipboard");
-            if (clipboard == null) {
-                // Some devices have no clipboard manager
-                // <https://github.com/Genymobile/scrcpy/issues/1440>
-                // <https://github.com/Genymobile/scrcpy/issues/1556>
-                return null;
-            }
-            clipboardManager = new ClipboardManager(clipboard);
-        }
-        return clipboardManager;
-    }
-
-    public static ActivityManager getActivityManager() {
-        if (activityManager == null) {
-            try {
-                // On old Android versions, the ActivityManager is not exposed via AIDL,
-                // so use ActivityManagerNative.getDefault()
-                Class<?> cls = Class.forName("android.app.ActivityManagerNative");
-                Method getDefaultMethod = cls.getDeclaredMethod("getDefault");
-                IInterface am = (IInterface) getDefaultMethod.invoke(null);
-                activityManager = new ActivityManager(am);
             } catch (Exception e) {
                 throw new AssertionError(e);
             }
         }
-
-        return activityManager;
+        return inputManager;
     }
 }

@@ -2,7 +2,6 @@ package com.aoliaoaojiao.AndroidTouch;
 
 import android.graphics.Rect;
 
-import java.util.List;
 import java.util.Locale;
 
 public class Options {

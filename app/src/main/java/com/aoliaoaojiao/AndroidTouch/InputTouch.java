@@ -1,143 +1,173 @@
 package com.aoliaoaojiao.AndroidTouch;
 
-import android.os.Build;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
-import android.view.SurfaceControl;
 
-import com.aoliaoaojiao.AndroidTouch.wrappers.InputManager;
-
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Scanner;
 
-public class InputTouch {
+/**
+ * 简化的触控输入处理类，专注于核心触控功能
+ * 不依赖ScreenCapture，直接通过Device获取屏幕信息
+ */
+public class InputTouch implements Device.RotationListener {
     private static final int DEFAULT_DEVICE_ID = 0;
     private static final int POINTER_ID_MOUSE = -1;
     private static final int POINTER_ID_VIRTUAL_MOUSE = -3;
+    
+    private final Device device;
+    private final Scanner scanner;
+    private Size currentScreenSize;
     private long lastTouchDown;
-    private Device device;
-    private SurfaceCapture surfaceCapture;
-
-    private Scanner scanner;
+    
     private final PointersState pointersState = new PointersState();
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[PointersState.MAX_POINTERS];
     private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[PointersState.MAX_POINTERS];
+    private final HashMap<Long, Point> pointerIdLastPoint = new HashMap<>();
 
-    HashMap<Long, Point> pointerIdLastPoint = new HashMap<>();
-
-    public InputTouch() {
+    public InputTouch(Device device, Scanner scanner) {
+        this.device = device;
+        this.scanner = scanner;
+        this.currentScreenSize = device.getScreenInfo().getVideoSize();
+        device.setRotationListener(this);
+        initPointers();
     }
 
-    public InputTouch(Device device, SurfaceCapture surfaceCapture, Scanner scanner) {
-        this.device = device;
-        this.surfaceCapture = surfaceCapture;
-        this.scanner = scanner;
-        initPointers();
-        try {
-            this.surfaceCapture.init();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+    /**
+     * 处理触控命令的主循环
+     * 支持命令格式：
+     * - airtest down x y [pointerId] - 相对坐标按下
+     * - airtest move x y [pointerId] - 相对坐标移动
+     * - airtest up [pointerId] - 相对坐标释放
+     * - touch down x y [pointerId] - 绝对坐标按下
+     * - touch move x y [pointerId] - 绝对坐标移动
+     * - touch up [pointerId] - 绝对坐标释放
+     */
+    public void handleEvent() {
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                String cmd = scanner.nextLine();
+                if (cmd == null || cmd.trim().isEmpty()) {
+                    continue;
+                }
+                
+                processTouchCommand(cmd);
+            } catch (Exception e) {
+                Ln.e("Error processing touch command: " + e.getMessage());
+            }
         }
     }
 
-
-    public void handleEvent() {
-        while (!Thread.currentThread().isInterrupted()) {
-            String cmd = scanner.nextLine();
-            List<String> params = new ArrayList<>();
-            for (String param : cmd.split(" ")) {
-                if (!"".equals(param)) {
-                    params.add(param);
-                }
+    private void processTouchCommand(String cmd) {
+        List<String> params = new ArrayList<>();
+        for (String param : cmd.split(" ")) {
+            if (!param.isEmpty()) {
+                params.add(param);
             }
-            int lastX = 0;
-            int lastY = 0;
-            long pointerId = 0;
+        }
 
-            if (params.size() >= 2) {
-                int action = 0;
+        if (params.size() < 2) {
+            Ln.e("Invalid command format: " + cmd);
+            return;
+        }
 
-                if (!"airtest".equals(params.get(0)) && !"touch".equals(params.get(0))) {
-                    Ln.e("the command is error:" + cmd);
-                    continue;
+        String commandType = params.get(0);
+        String action = params.get(1);
+        
+        if (!("airtest".equals(commandType) || "touch".equals(commandType))) {
+            Ln.e("Unknown command type: " + commandType);
+            return;
+        }
+
+        int x = 0, y = 0;
+        long pointerId = 0;
+        int motionAction = 0;
+
+        switch (action) {
+            case "down":
+                if (params.size() < 4) {
+                    Ln.e("Invalid down command: " + cmd);
+                    return;
                 }
-
-                switch (params.get(1)) {
-                    case "down":
-                    case "move": {
-                        if (params.size() < 4) {
-                            Ln.e("the command is error:" + cmd);
-                            continue;
-                        }
-
-                        action = "down".equals(params.get(1)) ? 0 : 2;
-                        if (params.size() == 5) {
-                            pointerId = Long.parseLong(params.get(4));
-//                            Ln.i("pointerId:"+pointerId);
-                        }
-
-                        if ("airtest".equals(params.get(0))) {
-                            double pointX = Double.parseDouble(params.get(2));
-                            double pointY = Double.parseDouble(params.get(3));
-                            lastX = (int) (pointX * surfaceCapture.getSize().getWidth());
-                            lastY = (int) (pointY * surfaceCapture.getSize().getHeight());
-                        } else if ("touch".equals(params.get(0))) {
-                            lastX = Integer.parseInt(params.get(2));
-                            lastY = Integer.parseInt(params.get(3));
-                        }
-
-                        break;
-                    }
-                    case "up": {
-                        action = 1;
-                        if (params.size() == 3) {
-                            pointerId = Long.parseLong(params.get(2));
-                        }
-                        if (pointerIdLastPoint.containsKey(pointerId) && pointerIdLastPoint.get(pointerId) != null) {
-                            Point point = pointerIdLastPoint.get(pointerId);
-                            lastX = point.getX();
-                            lastY = point.getY();
-                        }
-                        break;
-                    }
-                    default: {
-                        Ln.e("unable to resolve command");
-                        continue;
-                    }
+                motionAction = MotionEvent.ACTION_DOWN;
+                x = parseCoordinate(params.get(2), commandType, true);
+                y = parseCoordinate(params.get(3), commandType, false);
+                if (params.size() >= 5) {
+                    pointerId = Long.parseLong(params.get(4));
                 }
-
-                Point point = new Point(lastX, lastY);
-                if (!params.get(1).equals("up")){
-                    pointerIdLastPoint.put(pointerId, point);
-                }else {
-                    pointerIdLastPoint.remove(pointerId);
+                break;
+                
+            case "move":
+                if (params.size() < 4) {
+                    Ln.e("Invalid move command: " + cmd);
+                    return;
                 }
-//                Ln.i(params.get(1)+" x:"+lastX+" y:"+lastY+" id:"+pointerId);
-
-                Position position = new Position(point, surfaceCapture.getSize());
-
-                float pressure = Binary.u16FixedPointToFloat((short) 0xffff);
-                int actionButton = 1;
-                int buttons = 1;
-
-                ControlMessage msg = ControlMessage.createInjectTouchEvent(action, pointerId, position, pressure, actionButton, buttons);
-
-                if (device.supportsInputEvents()) {
-                    boolean result = injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
-                    if (!result) {
-                        Ln.e("touch event fail"+msg.getPointerId());
-                    }else {
-                        Ln.i("succeed "+msg.getPointerId());
-                    }
+                motionAction = MotionEvent.ACTION_MOVE;
+                x = parseCoordinate(params.get(2), commandType, true);
+                y = parseCoordinate(params.get(3), commandType, false);
+                if (params.size() >= 5) {
+                    pointerId = Long.parseLong(params.get(4));
                 }
+                break;
+                
+            case "up":
+                motionAction = MotionEvent.ACTION_UP;
+                if (params.size() >= 3) {
+                    pointerId = Long.parseLong(params.get(2));
+                }
+                
+                // 获取上次的位置
+                if (pointerIdLastPoint.containsKey(pointerId)) {
+                    Point lastPoint = pointerIdLastPoint.get(pointerId);
+                    x = lastPoint.getX();
+                    y = lastPoint.getY();
+                }
+                break;
+                
+            default:
+                Ln.e("Unknown action: " + action);
+                return;
+        }
 
+        // 更新指针位置记录
+        Point point = new Point(x, y);
+        if (!"up".equals(action)) {
+            pointerIdLastPoint.put(pointerId, point);
+        } else {
+            pointerIdLastPoint.remove(pointerId);
+        }
+
+        // 创建位置对象
+        Position position = new Position(point, currentScreenSize);
+        
+        // 设置默认参数
+        float pressure = 1.0f;
+        int actionButton = 1;
+        int buttons = 1;
+
+        // 注入触控事件
+        if (device.supportsInputEvents()) {
+            boolean result = injectTouch(motionAction, pointerId, position, pressure, actionButton, buttons);
+            if (result) {
+                Ln.i("Touch event succeeded: " + action + " pointerId=" + pointerId + " x=" + x + " y=" + y);
             } else {
-                Ln.e("the command is error:" + cmd);
+                Ln.e("Touch event failed: " + action + " pointerId=" + pointerId);
             }
+        }
+    }
+
+    private int parseCoordinate(String coord, String commandType, boolean isX) {
+        if ("airtest".equals(commandType)) {
+            // 相对坐标，需要转换为绝对坐标
+            double relative = Double.parseDouble(coord);
+            int screenSize = isX ? currentScreenSize.getWidth() : currentScreenSize.getHeight();
+            return (int) (relative * screenSize);
+        } else {
+            // 绝对坐标
+            return Integer.parseInt(coord);
         }
     }
 
@@ -146,7 +176,7 @@ public class InputTouch {
 
         Point point = device.getPhysicalPoint(position);
         if (point == null) {
-            Ln.w("Ignore touch event, it was generated for a different device size");
+            Ln.w("Ignore touch event, invalid position");
             return false;
         }
 
@@ -155,98 +185,42 @@ public class InputTouch {
             Ln.w("Too many pointers for touch event");
             return false;
         }
+        
         Pointer pointer = pointersState.get(pointerIndex);
         pointer.setPoint(point);
         pointer.setPressure(pressure);
 
-        int source;
+        // 设置指针属性
         if (pointerId == POINTER_ID_MOUSE || pointerId == POINTER_ID_VIRTUAL_MOUSE) {
-            // real mouse event (forced by the client when --forward-on-click)
             pointerProperties[pointerIndex].toolType = MotionEvent.TOOL_TYPE_MOUSE;
-            source = InputDevice.SOURCE_MOUSE;
             pointer.setUp(buttons == 0);
         } else {
-            // POINTER_ID_GENERIC_FINGER, POINTER_ID_VIRTUAL_FINGER or real touch from device
             pointerProperties[pointerIndex].toolType = MotionEvent.TOOL_TYPE_FINGER;
-            source = InputDevice.SOURCE_TOUCHSCREEN;
-            // Buttons must not be set for touch events
-            buttons = 0;
+            buttons = 0; // 触控事件不需要buttons
             pointer.setUp(action == MotionEvent.ACTION_UP);
         }
 
         int pointerCount = pointersState.update(pointerProperties, pointerCoords);
-        if (pointerCount == 1) {
-            if (action == MotionEvent.ACTION_DOWN) {
-                lastTouchDown = now;
-            }
-        } else {
-            // secondary pointers must use ACTION_POINTER_* ORed with the pointerIndex
+        
+        // 处理多点触控动作
+        if (pointerCount > 1) {
             if (action == MotionEvent.ACTION_UP) {
                 action = MotionEvent.ACTION_POINTER_UP | (pointerIndex << MotionEvent.ACTION_POINTER_INDEX_SHIFT);
             } else if (action == MotionEvent.ACTION_DOWN) {
                 action = MotionEvent.ACTION_POINTER_DOWN | (pointerIndex << MotionEvent.ACTION_POINTER_INDEX_SHIFT);
             }
+        } else if (action == MotionEvent.ACTION_DOWN) {
+            lastTouchDown = now;
         }
 
-        /* If the input device is a mouse (on API >= 23):
-         *   - the first button pressed must first generate ACTION_DOWN;
-         *   - all button pressed (including the first one) must generate ACTION_BUTTON_PRESS;
-         *   - all button released (including the last one) must generate ACTION_BUTTON_RELEASE;
-         *   - the last button released must in addition generate ACTION_UP.
-         *
-         * Otherwise, Chrome does not work properly: <https://github.com/Genymobile/scrcpy/issues/3635>
-         */
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && source == InputDevice.SOURCE_MOUSE) {
-            if (action == MotionEvent.ACTION_DOWN) {
-                if (actionButton == buttons) {
-                    // First button pressed: ACTION_DOWN
-                    MotionEvent downEvent = MotionEvent.obtain(lastTouchDown, now, MotionEvent.ACTION_DOWN, pointerCount, pointerProperties,
-                            pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source, 0);
-                    if (!device.injectEvent(downEvent, Device.INJECT_MODE_ASYNC)) {
-                        return false;
-                    }
-                }
-
-                // Any button pressed: ACTION_BUTTON_PRESS
-                MotionEvent pressEvent = MotionEvent.obtain(lastTouchDown, now, MotionEvent.ACTION_BUTTON_PRESS, pointerCount, pointerProperties,
-                        pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source, 0);
-                if (!InputManager.setActionButton(pressEvent, actionButton)) {
-                    return false;
-                }
-                if (!device.injectEvent(pressEvent, Device.INJECT_MODE_ASYNC)) {
-                    return false;
-                }
-
-                return true;
-            }
-
-            if (action == MotionEvent.ACTION_UP) {
-                // Any button released: ACTION_BUTTON_RELEASE
-                MotionEvent releaseEvent = MotionEvent.obtain(lastTouchDown, now, MotionEvent.ACTION_BUTTON_RELEASE, pointerCount, pointerProperties,
-                        pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source, 0);
-                if (!InputManager.setActionButton(releaseEvent, actionButton)) {
-                    return false;
-                }
-                if (!device.injectEvent(releaseEvent, Device.INJECT_MODE_ASYNC)) {
-                    return false;
-                }
-
-                if (buttons == 0) {
-                    // Last button released: ACTION_UP
-                    MotionEvent upEvent = MotionEvent.obtain(lastTouchDown, now, MotionEvent.ACTION_UP, pointerCount, pointerProperties,
-                            pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source, 0);
-                    if (!device.injectEvent(upEvent, Device.INJECT_MODE_ASYNC)) {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-        }
-
-        MotionEvent event = MotionEvent
-                .obtain(lastTouchDown, now, action, pointerCount, pointerProperties, pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source,
-                        0);
+        // 创建并注入MotionEvent
+        MotionEvent event = MotionEvent.obtain(
+            lastTouchDown, now, action, pointerCount, 
+            pointerProperties, pointerCoords, 0, buttons, 
+            1f, 1f, DEFAULT_DEVICE_ID, 0, 
+            InputDevice.SOURCE_TOUCHSCREEN, 0
+        );
+        
         return device.injectEvent(event, Device.INJECT_MODE_ASYNC);
     }
 
@@ -262,5 +236,13 @@ public class InputTouch {
             pointerProperties[i] = props;
             pointerCoords[i] = coords;
         }
+    }
+
+    @Override
+    public void onRotationChanged(int rotation) {
+        // 屏幕旋转时更新尺寸信息
+        this.currentScreenSize = device.getScreenInfo().getVideoSize();
+        Ln.i("Screen rotation changed to " + rotation + 
+             ", new size: " + currentScreenSize.getWidth() + "x" + currentScreenSize.getHeight());
     }
 }
